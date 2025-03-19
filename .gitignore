@@ -1,2 +1,8 @@
 data/steam_games.csv
 data/steam_games_cleaned.csv
+data/steam_games_kaggle.csv
+data/steam_games_finalized.csv
+data/steam_games_finalized_clean.csv
+outputs/price_distribution.png
+outputs/price_vs_review_score.png
+kaggle.json
