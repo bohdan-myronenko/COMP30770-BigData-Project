@@ -17,7 +17,7 @@ df['Positive'].fillna(0, inplace=True)
 df['Negative'].fillna(0, inplace=True)
 
 # Convert data types
-df['Price'] = df['price'].astype(float)
+df['Price'] = df['Price'].astype(float)
 df['Positive'] = df['Positive'].astype(int)
 df['Negative'] = df['Negative'].astype(int)
 
