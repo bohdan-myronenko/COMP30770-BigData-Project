@@ -1,5 +1,15 @@
 import pandas as pd
+import re
 
+# Define a function to extract the review sentiment
+def extract_review_sentiment(text):
+    if pd.isna(text):
+        return None
+    # Use regex to extract the sentiment (e.g., "Very Positive")
+    match = re.match(r'^([A-Za-z\s]+)', text)
+    if match:
+        return match.group(1).strip()
+    return None
 
 # Load the original dataset
 df_fronkon = pd.read_csv('data/steam_games.csv')
@@ -25,7 +35,7 @@ df_fronkon['Review_Score'] = df_fronkon.apply(
 # Standardize Release_Date to ISO format
 df_fronkon['Release_Date'] = pd.to_datetime(df_fronkon['Release_Date'], errors='coerce').dt.date
 
-
+# Load Kaggle dataset
 df_kaggle = pd.read_csv('data/steam_games_kaggle.csv')
 
 # Extract AppID from URL
@@ -41,7 +51,6 @@ if not invalid_urls.empty:
 
 # Now safely convert AppID to integer
 df_kaggle['AppID'] = df_kaggle['AppID'].astype(int)
-
 
 # Handle 'Free' and other non-numeric cases explicitly
 df_kaggle['Original_Price'] = (
@@ -62,6 +71,7 @@ df_kaggle['Discount_Price'] = (
 
 df_kaggle['Discount_Price'] = pd.to_numeric(df_kaggle['Discount_Price'], errors='coerce').fillna(0.0)
 
+# Calculate discount percentage
 df_kaggle['Discount_Percentage'] = (
     (df_kaggle['Original_Price'] - df_kaggle['Discount_Price']) /
     df_kaggle['Original_Price'] * 100
@@ -70,17 +80,37 @@ df_kaggle['Discount_Percentage'] = (
 # Handle potential division by zero
 df_kaggle['Discount_Percentage'].fillna(0, inplace=True)
 
+# Digitize review ratings
+review_mapping = {
+    'Overwhelmingly Negative': 0,
+    'Very Negative': 1,
+    'Negative': 2,
+    'Mixed': 3,
+    'Positive': 4,
+    'Very Positive': 5,
+    'Overwhelmingly Positive': 6
+}
+
+# Extract review sentiment from 'recent_reviews' and 'all_reviews'
+df_kaggle['Recent_Reviews_Sentiment'] = df_kaggle['recent_reviews'].apply(extract_review_sentiment)
+df_kaggle['All_Reviews_Sentiment'] = df_kaggle['all_reviews'].apply(extract_review_sentiment)
+
+# Map sentiment to numerical values
+df_kaggle['Recent_Reviews'] = df_kaggle['Recent_Reviews_Sentiment'].map(review_mapping).fillna(-1)  # -1 for unknown
+df_kaggle['All_Reviews'] = df_kaggle['All_Reviews_Sentiment'].map(review_mapping).fillna(-1)  # -1 for unknown
+
+# Drop intermediate sentiment columns
+df_kaggle.drop(columns=['Recent_Reviews_Sentiment', 'All_Reviews_Sentiment'], inplace=True)
+
 # Keep necessary columns
 df_kaggle = df_kaggle[['AppID', 'name', 'release_date', 'Original_Price', 'Discount_Price',
-                       'Discount_Percentage', 'recent_reviews', 'all_reviews', 'popular_tags',
+                       'Discount_Percentage', 'Recent_Reviews', 'All_Reviews', 'popular_tags',
                        'achievements', 'genre', 'developer', 'publisher']]
 
 # Rename columns for uniformity
 df_kaggle.rename(columns={
     'name': 'Name',
     'release_date': 'Release_Date',
-    'recent_reviews': 'Recent_Reviews',
-    'all_reviews': 'All_Reviews',
     'popular_tags': 'Tags',
     'achievements': 'Achievements',
     'genre': 'Genres',
@@ -105,3 +135,4 @@ df_final = df_merged[final_columns_order]
 
 # Save finalized dataset
 df_final.to_csv('data/steam_games_finalized.csv', index=False)
+print("Finalized dataset saved to 'data/steam_games_finalized.csv'")
