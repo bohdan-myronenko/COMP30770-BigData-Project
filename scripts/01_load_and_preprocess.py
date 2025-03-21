@@ -1,138 +1,77 @@
 import pandas as pd
 import re
 
-# Define a function to extract the review sentiment
-def extract_review_sentiment(text):
-    if pd.isna(text):
-        return None
-    # Use regex to extract the sentiment (e.g., "Very Positive")
-    match = re.match(r'^([A-Za-z\s]+)', text)
-    if match:
-        return match.group(1).strip()
-    return None
+# Load Steam dataset from HuggingFace
+from datasets import load_dataset
 
-# Load the original dataset
-df_fronkon = pd.read_csv('data/steam_games.csv')
+# Download dataset
+dataset = load_dataset("FronkonGames/steam-games-dataset")
+df = pd.DataFrame(dataset['train'])
 
-# Keep necessary columns only
-df_fronkon = df_fronkon[['AppID', 'Name', 'Release date', 'Estimated owners', 'Price',
-                         'Positive', 'Negative', 'Genres', 'Categories', 'Tags', 'Achievements',
-                         'Developers', 'Publishers']]
+# Select relevant columns for analysis
+df = df[['AppID', 'Name', 'Release date', 'Estimated owners', 'Price',
+         'DLC count', 'Positive', 'Negative', 'Average playtime forever',
+         'Median playtime forever', 'Developers', 'Publishers', 'Categories', 'Genres', 'Tags']]
 
-# Rename columns for uniformity
-df_fronkon.rename(columns={
+# Rename columns consistently
+df.rename(columns={
     'Release date': 'Release_Date',
     'Estimated owners': 'Estimated_Owners',
     'Developers': 'Developer',
-    'Publishers': 'Publisher'
+    'Publishers': 'Publisher',
+    'DLC count': 'DLC_Count',
+    'Average playtime forever': 'Avg_Playtime',
+    'Median playtime forever': 'Median_Playtime'
 }, inplace=True)
 
-# Calculate review score
-df_fronkon['Review_Score'] = df_fronkon.apply(
+# Compute review score safely
+df['Review_Score'] = df.apply(
     lambda row: row['Positive'] / (row['Positive'] + row['Negative']) * 100
     if (row['Positive'] + row['Negative']) > 0 else 0, axis=1)
 
-# Standardize Release_Date to ISO format
-df_fronkon['Release_Date'] = pd.to_datetime(df_fronkon['Release_Date'], errors='coerce').dt.date
+# Standardize date format
+df['Release_Date'] = pd.to_datetime(df['Release_Date'], errors='coerce').dt.date
 
-# Load Kaggle dataset
-df_kaggle = pd.read_csv('data/steam_games_kaggle.csv')
+# Categorize games by price range
+df['Price_Category'] = pd.cut(df['Price'], bins=[-1, 0, 10, 30, 100, float('inf')], 
+                             labels=['Free', 'Budget', 'Mid-Range', 'Premium', 'Luxury'])
 
-# Extract AppID from URL
-df_kaggle['AppID'] = df_kaggle['url'].str.extract(r'/app/(\d+)/')
+# One-hot encode Genres and Categories (for ML usage)
+df = pd.get_dummies(df, columns=['Genres', 'Categories'], prefix=['Genre', 'Category'])
 
-# Check rows with NaN AppID
-invalid_urls = df_kaggle[df_kaggle['AppID'].isnull()]
-if not invalid_urls.empty:
-    print(f"Found {len(invalid_urls)} invalid URLs:")
-    print(invalid_urls['url'])
-    # Drop or handle these rows explicitly
-    df_kaggle = df_kaggle.dropna(subset=['AppID'])
-
-# Now safely convert AppID to integer
-df_kaggle['AppID'] = df_kaggle['AppID'].astype(int)
-
-# Handle 'Free' and other non-numeric cases explicitly
-df_kaggle['Original_Price'] = (
-    df_kaggle['original_price']
-    .replace('Free', '0', regex=False)  # Replace 'Free' with '0'
-    .replace('[\$,]', '', regex=True)   # Remove dollar signs and commas
-)
-
-# Convert safely to float
-df_kaggle['Original_Price'] = pd.to_numeric(df_kaggle['Original_Price'], errors='coerce').fillna(0.0)
-
-# Repeat similar logic for 'discount_price'
-df_kaggle['Discount_Price'] = (
-    df_kaggle['discount_price']
-    .replace('Free', '0', regex=False)
-    .replace('[\$,]', '', regex=True)
-)
-
-df_kaggle['Discount_Price'] = pd.to_numeric(df_kaggle['Discount_Price'], errors='coerce').fillna(0.0)
-
-# Calculate discount percentage
-df_kaggle['Discount_Percentage'] = (
-    (df_kaggle['Original_Price'] - df_kaggle['Discount_Price']) /
-    df_kaggle['Original_Price'] * 100
-).round(2)
-
-# Handle potential division by zero
-df_kaggle['Discount_Percentage'].fillna(0, inplace=True)
-
-# Digitize review ratings
-review_mapping = {
-    'Overwhelmingly Negative': 0,
-    'Very Negative': 1,
-    'Negative': 2,
-    'Mixed': 3,
-    'Positive': 4,
-    'Very Positive': 5,
-    'Overwhelmingly Positive': 6
+# Remove any duplicates
+aggregation_functions = {
+    'Name': 'first',
+    'Price': 'mean',
+    'DLC_Count': 'mean',
+    'Estimated_Owners': 'first',
+    'Positive': 'sum',
+    'Negative': 'sum',
+    'Avg_Playtime': 'mean',
+    'Median_Playtime': 'mean',
+    'Developer': lambda x: ', '.join(x.dropna().unique()),
+    'Publisher': lambda x: ', '.join(x.dropna().unique()),
+    'Tags': lambda x: ', '.join(x.dropna().unique()),
+    'Review_Score': 'mean',
+    'Price_Category': 'first'
 }
 
-# Extract review sentiment from 'recent_reviews' and 'all_reviews'
-df_kaggle['Recent_Reviews_Sentiment'] = df_kaggle['recent_reviews'].apply(extract_review_sentiment)
-df_kaggle['All_Reviews_Sentiment'] = df_kaggle['all_reviews'].apply(extract_review_sentiment)
+# Aggregate duplicates based on AppID
+df_cleaned = df.groupby('AppID', as_index=False).agg(aggregation_functions)
 
-# Map sentiment to numerical values
-df_kaggle['Recent_Reviews'] = df_kaggle['Recent_Reviews_Sentiment'].map(review_mapping).fillna(-1)  # -1 for unknown
-df_kaggle['All_Reviews'] = df_kaggle['All_Reviews_Sentiment'].map(review_mapping).fillna(-1)  # -1 for unknown
+# Recompute accurate Review Score
+df_cleaned['Review_Score'] = df_cleaned.apply(
+    lambda row: row['Positive'] / (row['Positive'] + row['Negative']) * 100
+    if (row['Positive'] + row['Negative']) > 0 else 0, axis=1)
 
-# Drop intermediate sentiment columns
-df_kaggle.drop(columns=['Recent_Reviews_Sentiment', 'All_Reviews_Sentiment'], inplace=True)
+# Final column order for clarity
+final_columns = ['AppID', 'Name', 'Price', 'Price_Category', 'DLC_Count',
+                 'Estimated_Owners', 'Positive', 'Negative', 'Review_Score',
+                 'Avg_Playtime', 'Median_Playtime', 'Developer', 'Publisher', 'Tags'] + \
+                [col for col in df_cleaned.columns if col.startswith(('Genre_', 'Category_'))]
 
-# Keep necessary columns
-df_kaggle = df_kaggle[['AppID', 'name', 'release_date', 'Original_Price', 'Discount_Price',
-                       'Discount_Percentage', 'Recent_Reviews', 'All_Reviews', 'popular_tags',
-                       'achievements', 'genre', 'developer', 'publisher']]
+# Save the finalized cleaned and deduplicated dataset
+df_cleaned = df_cleaned[final_columns]
+df_cleaned.to_csv('data/steam_games_final_cleaned.csv', index=False)
 
-# Rename columns for uniformity
-df_kaggle.rename(columns={
-    'name': 'Name',
-    'release_date': 'Release_Date',
-    'popular_tags': 'Tags',
-    'achievements': 'Achievements',
-    'genre': 'Genres',
-    'developer': 'Developer',
-    'publisher': 'Publisher'
-}, inplace=True)
-
-# Standardize Release_Date to ISO format
-df_kaggle['Release_Date'] = pd.to_datetime(df_kaggle['Release_Date'], errors='coerce').dt.date
-
-# Merge datasets on AppID (use outer join to keep all records)
-df_merged = pd.merge(df_fronkon, df_kaggle, on=['AppID', 'Name', 'Release_Date', 'Developer', 'Publisher',
-                                                'Genres', 'Tags', 'Achievements'], how='outer')
-
-# Reorder columns for clarity
-final_columns_order = ['AppID', 'Name', 'Original_Price', 'Discount_Price',
-                       'Discount_Percentage', 'Estimated_Owners', 'Positive', 'Negative', 'Review_Score',
-                       'Recent_Reviews', 'All_Reviews', 'Genres', 'Categories', 'Tags', 'Achievements',
-                       'Developer', 'Publisher']
-
-df_final = df_merged[final_columns_order]
-
-# Save finalized dataset
-df_final.to_csv('data/steam_games_finalized.csv', index=False)
-print("Finalized dataset saved to 'data/steam_games_finalized.csv'")
+print("Finalized and cleaned dataset saved to 'data/steam_games_final_cleaned.csv'")
