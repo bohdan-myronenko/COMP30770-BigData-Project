@@ -1,4 +1,16 @@
+# Ignore large dataset files
 data/steam_games_engineered.csv
 data/steam_games_final_cleaned.csv
+data/steam_games.csv
+data/steam_games_kaggle.csv
+
+
+# Ignore model files
 outputs/review_score_predictor.pkl
+outputs/final_review_score_predictor.pkl
+
+# Ignore authentication files
 kaggle.json
+
+
+

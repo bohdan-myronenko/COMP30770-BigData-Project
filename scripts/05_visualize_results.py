@@ -9,7 +9,7 @@ import seaborn as sns
 df = pd.read_csv('data/steam_games_engineered.csv')
 
 # Load the trained model
-model = joblib.load('outputs/review_score_predictor.pkl')
+model = joblib.load('outputs/final_review_score_predictor.pkl')
 
 # Select all numeric features except the target
 target = 'Review_Score'
@@ -43,7 +43,7 @@ plt.close()
 # DLC Impact Analysis
 plt.figure(figsize=(10, 6))
 sns.boxplot(x=pd.cut(df['DLC_Count'], bins=[-1, 0, 5, 20, 50, float('inf')], 
-                    labels=['No DLC', 'Few DLCs', 'Moderate', 'Many', 'Tons']),
+            labels=['No DLC', 'Few DLCs', 'Moderate', 'Many', 'Tons']),
             y='Review_Score', data=df)
 plt.title('DLC Count Impact on Review Score')
 plt.xlabel('DLC Group')
